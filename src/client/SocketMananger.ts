@@ -1,10 +1,12 @@
 import EventEmitter from "events";
-import { GatewayEvent } from "../types/enums";
+import { GatewaySessionEvents, Intents } from "../api/types/enums";
+import Client from "./Client";
+import handlers from "./handlers";
 
 interface SocketManagerInterface {
     version: string;
     socket: WebSocket;
-    token: string;
+    client: Client;
     heartbeatInterval: number | null;
 }
 
@@ -14,10 +16,9 @@ interface SocketManagerOptions {
      */
     version: string;
     /**
-     * The token to be used to identify with the Discord Gateway.
-     * !!! WILL BE REPLACED WITH A CLIENT CLASS !!!
+     * Client class
      */
-    token: string; 
+    client: Client; 
 }
 
 /**
@@ -25,28 +26,44 @@ interface SocketManagerOptions {
  */
 class DiscordSocketManager extends EventEmitter implements SocketManagerInterface {
     version: string;
+    client: Client;
     socket: WebSocket;
-    token: string;
     heartbeatInterval: number | null;
 
-    constructor({ version, token }: SocketManagerOptions) {
+    constructor({ version, client }: SocketManagerOptions) {
         super()
         this.version = version;
+        this.client = client;
     }
 
     /**
      * Initialise event handlers and connection to gateway
      */
-    public initialise() {
-        this.socket = new WebSocket(`wss://gateway.discord.gg/?v=${this.version}&encoding=json`)
+    public initialise({ intents, token }: { intents: Intents[]; token: string; }) {
+        this.socket = new WebSocket(`wss://gateway.discord.gg/gateway/bot?v=${this.version}&encoding=json`)
         this.socket.addEventListener("message", ({ data }) => {
+            console.log(data)
+            /* Basic discord error checking, will definetly need to be changed. */
+            if (data === "Authentication failed.") {
+                throw new Error("Invalid token.")
+            }
+            if (data === "Disallowed intent(s).") {
+                throw new Error("You need to enable intents of your application.")
+            }
+
             const parsedData = JSON.parse(data)
 
             switch (parsedData.op) {
-                case GatewayEvent.HELLO:
-                    this.sendHeartbeat() // Send hearbeat immediately
-                    this.heartbeatInterval = setInterval(() => this.sendHeartbeat(), parsedData.d.heartbeat_interval) // Send hearbeats given the interval by discord
-                    break;
+                case GatewaySessionEvents.HELLO:
+                    setTimeout(() => {
+                        this.sendHeartbeat()
+                        this.heartbeatInterval = setInterval(() => this.sendHeartbeat(), parsedData.d.heartbeat_interval) // Send hearbeats given the interval by discord
+                    }, parsedData.d.heartbeat_interval * Math.round(Math.random()))
+                    return this.identify({ intents, token });
+                case GatewaySessionEvents.DISPATCH:
+                    return this.handlePacket(parsedData.t, parsedData.d)
+                case GatewaySessionEvents.HEARTBEAT:
+                    return this.sendHeartbeat()
             }
         })
         this.socket.addEventListener("close", () => {
@@ -58,17 +75,38 @@ class DiscordSocketManager extends EventEmitter implements SocketManagerInterfac
     }
 
     private sendHeartbeat() {
+        console.debug("sending hearbeat")
         const data = {
-            "op": GatewayEvent.HEARTBEAT,
+            "op": GatewaySessionEvents.HEARTBEAT,
             "d": null
         }
         this.send(data);
     }
 
-    private send(data: Record<string, any>) {
+    private identify({ intents, token }: { intents: Intents[]; token: string; }) {
+        const identify = {
+            "op": GatewaySessionEvents.IDENTIFY,
+            "d": {
+                "token": token,
+                "intents": intents.reduce((a, b) => a + b),
+                "properties": {
+                    "os": "linux",
+                    "browser": "aurora",
+                    "device": "aurora"
+                }
+            }
+        }
+        this.send(identify)
+    }
+
+    public send(data: Record<string, any>) {
         if (this.socket.OPEN) {
             this.socket.send(JSON.stringify(data))
         }
+    }
+
+    private handlePacket(event, data) {
+        handlers[event](this.client, data)
     }
 }
 
