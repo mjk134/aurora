@@ -41,8 +41,9 @@ class DiscordSocketManager extends EventEmitter implements SocketManagerInterfac
      */
     public initialise({ intents, token }: { intents: Intents[]; token: string; }) {
         this.socket = new WebSocket(`wss://gateway.discord.gg/gateway/bot?v=${this.version}&encoding=json`)
-        this.socket.addEventListener("message", ({ data }) => {
-            console.log(data)
+        this.socket.addEventListener("message", (message) => {
+            console.log(message)
+            const { data } = message;
             /* Basic discord error checking, will definetly need to be changed. */
             if (data === "Authentication failed.") {
                 throw new Error("Invalid token.")

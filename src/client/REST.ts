@@ -14,6 +14,7 @@ export class REST {
             "Authorization": `Bot ${client.token}`,
             "User-Agent": "DiscordBot (https://github.com/mjk134/aurora 0.0.1)"
         })
+        this.version = version;
     }
 
     public post(endpoint: string, data: Record<string, any>) {
@@ -25,6 +26,6 @@ export class REST {
             headers: this.headers
         })
         if (response.status === 200) return await response.json();
-        else throw Error("failed to get");
+        else throw Error("Failed to get.");
     }
 }
